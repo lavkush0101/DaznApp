@@ -3,8 +3,8 @@ package com.example.daznassignment
 import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
+import com.example.daznassignment.databinding.ActivityMainBinding
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
@@ -13,14 +13,14 @@ import com.google.android.exoplayer2.util.MimeTypes
 import com.google.android.exoplayer2.util.Util
 import com.google.firebase.analytics.FirebaseAnalytics
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseActivity<ActivityMainBinding, AnalyticsViewModel>() {
 
+    private var activityMainBinding: ActivityMainBinding? = null
+    private var analyticsViewModel: AnalyticsViewModel? = null
     private lateinit var exoPlayer: ExoPlayer
-    private lateinit var playerView: StyledPlayerView
-    private lateinit var firebaseAnalytics : FirebaseAnalytics
+    private lateinit var firebaseAnalytics: FirebaseAnalytics
     private var currentWindow = 0
     private var playbackPosition: Long = 0
-    private var isFullscreen = false
     private var isPlayerPlaying = true
     private val mediaItem = MediaItem.Builder()
         .setUri(MPD)
@@ -29,15 +29,25 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        playerView = findViewById(R.id.player_view)
-//        if (savedInstanceState != null) {
-//            currentWindow = savedInstanceState.getInt(STATE_RESUME_WINDOW)
-//            playbackPosition = savedInstanceState.getLong(STATE_RESUME_POSITION)
-//            isFullscreen = savedInstanceState.getBoolean(STATE_PLAYER_FULLSCREEN)
-//            isPlayerPlaying = savedInstanceState.getBoolean(STATE_PLAYER_PLAYING)
-//        }
+        activityMainBinding = getViewDataBinding()
+        analyticsViewModel = getViewModel()
+        activityMainBinding!!.analyticsViewModel = analyticsViewModel
+
+//        playerView = findViewById(R.id.player_view)
         initFirebase()
+    }
+
+    override fun getBindingVariable(): Int {
+        return BR.analyticsViewModel
+    }
+
+    override fun getLayout(): Int {
+        return R.layout.activity_main
+    }
+
+    override fun getViewModel(): AnalyticsViewModel {
+        analyticsViewModel = ViewModelProvider(this).get(AnalyticsViewModel::class.java)
+        return analyticsViewModel!!
     }
 
     private fun initPlayer() {
@@ -47,30 +57,33 @@ class MainActivity : AppCompatActivity() {
             setMediaItem(mediaItem, false)
             prepare()
         }
-        playerView.player = exoPlayer
+        activityMainBinding?.playerView?.player = exoPlayer
 
         exoPlayer.addListener(object : Player.Listener {
             private var playbackStartedAt = 0L
             override fun onPlayerStateChanged(playWhenReady: Boolean, playbackState: Int) {
                 when (playbackState) {
                     Player.STATE_READY -> {
-                        var count = 0
+                        var pCount = 0
+                        var playCount = 0
                         if (playWhenReady && playbackStartedAt == 0L) {
                             // Playback started
-                            count = count++
+                            playCount++
+                            analyticsViewModel?.fCount?.value=playCount
                             playbackStartedAt = System.currentTimeMillis()
                             val params = Bundle().apply {
-                                putString("video_url", "https://example.com/video.mp4")
                                 putString("event_name", "playback_started")
+                                putString("count", "$playCount")
                             }
                             firebaseAnalytics.logEvent("video_playback", params)
                         } else if (!playWhenReady && playbackStartedAt > 0L) {
                             // Playback paused
-                            val playbackDuration = System.currentTimeMillis() - playbackStartedAt
+                            pCount++
+                            analyticsViewModel?.pCount?.value=pCount
                             val params = Bundle().apply {
-                                putString("video_url", "https://example.com/video.mp4")
                                 putString("event_name", "playback_paused")
-                                putLong("playback_duration", playbackDuration)
+                                putString("count", "$pCount")
+
                             }
                             firebaseAnalytics.logEvent("video_playback", params)
                             playbackStartedAt = 0L
@@ -93,19 +106,11 @@ class MainActivity : AppCompatActivity() {
         exoPlayer.release()
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-//        outState.putInt(STATE_RESUME_WINDOW, exoPlayer.currentMediaItemIndex)
-//        outState.putLong(STATE_RESUME_POSITION, exoPlayer.currentPosition)
-//        outState.putBoolean(STATE_PLAYER_FULLSCREEN, isFullscreen)
-//        outState.putBoolean(STATE_PLAYER_PLAYING, isPlayerPlaying)
-        super.onSaveInstanceState(outState)
-    }
-
     override fun onStart() {
         super.onStart()
         if (Util.SDK_INT > 23) {
             initPlayer()
-            playerView.onResume()
+            activityMainBinding?.playerView?.onResume()
         }
     }
 
@@ -113,14 +118,14 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (Util.SDK_INT <= 23) {
             initPlayer()
-            playerView.onResume()
+            activityMainBinding?.playerView?.onResume()
         }
     }
 
     override fun onPause() {
         super.onPause()
         if (Util.SDK_INT <= 23) {
-            playerView.onPause()
+            activityMainBinding?.playerView?.onPause()
             releasePlayer()
         }
     }
@@ -128,7 +133,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         if (Util.SDK_INT > 23) {
-            playerView.onPause()
+            activityMainBinding?.playerView?.onPause()
             releasePlayer()
         }
     }
@@ -147,27 +152,15 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-
     companion object {
         const val MPD = "https://storage.googleapis.com/wvmedia/clear/h264/tears/tears.mpd"
-        const val STATE_RESUME_WINDOW = "resumeWindow"
-        const val STATE_RESUME_POSITION = "resumePosition"
-        const val STATE_PLAYER_FULLSCREEN = "playerFullscreen"
-        const val STATE_PLAYER_PLAYING = "playerOnPlay"
     }
-
-
 
 
     private fun initFirebase() {
         firebaseAnalytics = FirebaseAnalytics.getInstance(this)
-        val analyticsViewModel = ViewModelProvider(this).get(AnalyticsViewModel::class.java)
-        analyticsViewModel.buttonClickCount.observe(this) { count ->
-            // Update the UI with the button click count
-        }
-
         val bundle = Bundle()
-        bundle.putString("button_id", "play")
+        bundle.putString("button_id", "")
         firebaseAnalytics.logEvent("button_click", bundle)
 
 
